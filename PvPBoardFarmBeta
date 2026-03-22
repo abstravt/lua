@@ -1,0 +1,139 @@
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local VIM = game:GetService("VirtualInputManager")
+local lp = Players.LocalPlayer
+local gui = lp:WaitForChild("PlayerGui")
+
+local running = true
+local queued = false
+local missionStarted = false
+local missionFailed = false
+
+UIS.InputBegan:Connect(function(input, gpe)
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        running = false
+        print("Script stopped.")
+    end
+end)
+
+gui.DescendantAdded:Connect(function(v)
+    if not v:IsA("Frame") then return end
+    local name = v.Name
+
+    if name:find("Left PvP Mission Queue", 1, true) or name:find("Joined PvP Mission Queue", 1, true) then
+        queued = true
+        print("Flag: queued =", queued)
+
+    elseif name:find("Your mission is to", 1, true) then
+        missionStarted = true
+        print("Flag: missionStarted =", missionStarted)
+
+    elseif name:find("Mission Failed.", 1, true) then
+        missionFailed = true
+        print("Flag: missionFailed =", missionFailed)
+    end
+end)
+
+local function getChar()
+    return lp.Character
+end
+
+local function tpToBoard()
+    local char = getChar()
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local note = workspace.Map["Mission Boards"].PvP:GetChildren()[15]["Speedwagon Notes"].note
+    if hrp and note then
+        hrp.CFrame = note.CFrame * CFrame.new(0, 4, 3)
+    end
+end
+
+local function holdEUntilQueued()
+    local pressing = true
+    task.spawn(function()
+        while pressing do
+            VIM:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(2)
+            VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+            task.wait(2)
+        end
+    end)
+
+    local elapsed = 0
+    while elapsed < 10 do
+        task.wait(0.2)
+        elapsed += 0.2
+        if queued then break end
+    end
+
+    pressing = false
+    VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+end
+
+local function resetAndWait()
+    local respawned = false
+    local conn
+    conn = lp.CharacterAdded:Connect(function()
+        respawned = true
+        conn:Disconnect()
+    end)
+
+    local ok = pcall(function()
+        lp:LoadCharacter()
+    end)
+
+    if not ok then
+        local hum = getChar() and getChar():FindFirstChildOfClass("Humanoid")
+        if hum then hum.Health = 0 end
+    end
+
+    local t = 0
+    while not respawned and t < 10 do
+        task.wait(0.2)
+        t += 0.2
+    end
+
+    task.wait(2)
+end
+
+local function waitForMission()
+    print("Queued, waiting for mission...")
+    while running do
+        task.wait(0.3)
+        if missionStarted or missionFailed then
+            return true
+        end
+    end
+    return false
+end
+
+while running do
+    task.wait(0.5)
+
+    local char = getChar()
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
+        task.wait(2)
+        continue
+    end
+
+    queued = false
+    missionStarted = false
+    missionFailed = false
+
+    print("Idle, heading to board...")
+    tpToBoard()
+    task.wait(1)
+    print("Holding E...")
+    holdEUntilQueued()
+
+    if queued then
+        local triggered = waitForMission()
+        if triggered then
+            print("Mission triggered, resetting...")
+            task.wait(0.5)
+            resetAndWait()
+        end
+    else
+        print("Failed to queue, retrying...")
+    end
+end
