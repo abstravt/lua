@@ -1,0 +1,618 @@
+if getgenv then getgenv().ConfirmLuna = true end
+if not identifyexecutor then
+    identifyexecutor = function() return "Unknown" end
+end
+
+local RunService       = game:GetService("RunService")
+local Players          = game:GetService("Players")
+local Camera           = workspace.CurrentCamera
+local LocalPlayer      = Players.LocalPlayer
+
+-- ESP settings
+local TrapESP = {
+    Enabled               = false,
+    LabelColor            = Color3.fromRGB(255, 60, 60),
+    LabelSize             = 14,
+    HighlightColor        = Color3.fromRGB(255, 60, 60),
+    HighlightOutline      = Color3.fromRGB(255, 200, 0),
+    HighlightFillTrans    = 0.5,
+    HighlightOutlineTrans = 0,
+}
+
+local GeneratorESP = {
+    Enabled               = false,
+    ProximityRange        = 20,
+    HighlightColor        = Color3.fromRGB(0, 220, 255),
+    HighlightOutline      = Color3.fromRGB(255, 255, 255),
+    HighlightFillTrans    = 0.3,
+    HighlightOutlineTrans = 0,
+}
+
+local KillerESP = {
+    Enabled               = false,
+    HighlightColor        = Color3.fromRGB(255, 30, 30),
+    HighlightOutline      = Color3.fromRGB(255, 140, 0),
+    HighlightFillTrans    = 0.2,
+    HighlightOutlineTrans = 0,
+}
+
+local TrackedTraps      = {}
+local TrackedGenerators = {}
+local TrackedKillers    = {}
+local RenderConnection  = nil
+local Unloaded          = false
+
+-- Helper functions
+local function MakeHighlight(parent, fillColor, outlineColor, fillTrans, outlineTrans)
+    local h = Instance.new("Highlight")
+    h.FillColor           = fillColor
+    h.OutlineColor        = outlineColor
+    h.FillTransparency    = fillTrans
+    h.OutlineTransparency = outlineTrans
+    h.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    h.Adornee             = parent
+    h.Parent              = parent
+    return h
+end
+
+local function MakeLabel(text, color, size)
+    local t = Drawing.new("Text")
+    t.Text    = text
+    t.Size    = size or 14
+    t.Color   = color
+    t.Outline = true
+    t.Center  = true
+    t.Visible = false
+    return t
+end
+
+-- Get the actual position of a trap model (the part named "Trap" inside)
+local function GetTrapPosition(trapModel)
+    local trapPart = trapModel:FindFirstChild("Trap")
+    if trapPart and trapPart:IsA("BasePart") then
+        return trapPart.Position
+    end
+    local part = trapModel:FindFirstChildWhichIsA("BasePart")
+    if part then return part.Position end
+    return nil
+end
+
+local function ModelCenter(model)
+    local ok, cf = pcall(function() return model:GetBoundingBox() end)
+    if ok and cf then return cf.Position end
+    local primary = model.PrimaryPart
+    if primary then return primary.Position end
+    local part = model:FindFirstChildWhichIsA("BasePart")
+    if part then return part.Position end
+    return nil
+end
+
+local function W2S(pos)
+    local v, onScreen = Camera:WorldToViewportPoint(pos)
+    return Vector2.new(v.X, v.Y), v.Z, onScreen
+end
+
+local function GetCharRoot()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+-- ========== TRAPS (filtered to only models named "Trap") ==========
+local function IsTrapModel(model)
+    if not model:IsA("Model") then return false end
+    if model.Name ~= "Trap" then return false end
+    -- Optional: verify it contains a part named "Trap" (most traps do)
+    local trapPart = model:FindFirstChild("Trap")
+    if trapPart and trapPart:IsA("BasePart") then
+        return true
+    end
+    -- If no part named "Trap", still accept (fallback)
+    return true
+end
+
+local function ScanTraps()
+    local found = {}
+    local ignore = workspace:FindFirstChild("IGNORE")
+    if not ignore then
+        ignore = workspace:WaitForChild("IGNORE", 10)
+        if not ignore then return found end
+    end
+    for _, child in ipairs(ignore:GetChildren()) do
+        if IsTrapModel(child) then
+            table.insert(found, child)
+            print("[ESP] Found bear trap:", child.Name)
+        end
+    end
+    return found
+end
+
+local function TrackTrap(model)
+    if not IsTrapModel(model) then return end
+    if TrackedTraps[model] then return end
+    local label = MakeLabel("Bear Trap", TrapESP.LabelColor, TrapESP.LabelSize)
+    local highlight = MakeHighlight(model, TrapESP.HighlightColor, TrapESP.HighlightOutline, TrapESP.HighlightFillTrans, TrapESP.HighlightOutlineTrans)
+    TrackedTraps[model] = {
+        label = label,
+        highlight = highlight,
+    }
+    print("[ESP] Tracking bear trap:", model.Name)
+end
+
+local function UntrackTrap(model)
+    local e = TrackedTraps[model]
+    if not e then return end
+    pcall(function() e.label:Remove() end)
+    pcall(function() e.highlight:Destroy() end)
+    TrackedTraps[model] = nil
+end
+
+local function ShowAllTraps(show)
+    for _, e in pairs(TrackedTraps) do
+        if e.label then e.label.Visible = show end
+        if e.highlight then e.highlight.Enabled = show end
+    end
+end
+
+-- ========== GENERATORS ==========
+local function ScanGenerators()
+    local found = {}
+    local maps = workspace:FindFirstChild("MAPS")
+    if not maps then
+        maps = workspace:WaitForChild("MAPS", 5)
+        if not maps then return found end
+    end
+    local gameMap = maps:FindFirstChild("GAME MAP")
+    if not gameMap then
+        gameMap = maps:WaitForChild("GAME MAP", 5)
+        if not gameMap then return found end
+    end
+    local genFolder = gameMap:FindFirstChild("Generators")
+    if not genFolder then
+        genFolder = gameMap:WaitForChild("Generators", 5)
+        if not genFolder then return found end
+    end
+    for _, child in ipairs(genFolder:GetChildren()) do
+        if child:IsA("Model") or child:IsA("BasePart") then
+            table.insert(found, child)
+        end
+    end
+    return found
+end
+
+local function TrackGenerator(obj)
+    if TrackedGenerators[obj] then return end
+    TrackedGenerators[obj] = {
+        label = MakeLabel("Generator", Color3.fromRGB(0, 220, 255), 14),
+        highlight = MakeHighlight(obj, GeneratorESP.HighlightColor, GeneratorESP.HighlightOutline, GeneratorESP.HighlightFillTrans, GeneratorESP.HighlightOutlineTrans),
+    }
+end
+
+local function UntrackGenerator(obj)
+    local e = TrackedGenerators[obj]
+    if not e then return end
+    pcall(function() e.label:Remove() end)
+    pcall(function() e.highlight:Destroy() end)
+    TrackedGenerators[obj] = nil
+end
+
+local function ShowAllGenerators(show)
+    for _, e in pairs(TrackedGenerators) do
+        if e.label then e.label.Visible = show end
+        if e.highlight then e.highlight.Enabled = show end
+    end
+end
+
+-- ========== KILLERS (robust for round changes) ==========
+local function ScanKillers()
+    local found = {}
+    local playersFolder = workspace:FindFirstChild("PLAYERS")
+    if not playersFolder then
+        playersFolder = workspace:WaitForChild("PLAYERS", 5)
+        if not playersFolder then return found end
+    end
+    local killerFolder = playersFolder:FindFirstChild("KILLER")
+    if not killerFolder then
+        killerFolder = playersFolder:WaitForChild("KILLER", 5)
+        if not killerFolder then return found end
+    end
+    for _, child in ipairs(killerFolder:GetChildren()) do
+        if child:IsA("Model") then
+            table.insert(found, child)
+        end
+    end
+    return found
+end
+
+local function TrackKiller(model)
+    if TrackedKillers[model] then return end
+    TrackedKillers[model] = {
+        label = MakeLabel("KILLER", Color3.fromRGB(255, 30, 30), 16),
+        highlight = MakeHighlight(model, KillerESP.HighlightColor, KillerESP.HighlightOutline, KillerESP.HighlightFillTrans, KillerESP.HighlightOutlineTrans),
+    }
+    print("[ESP] Tracking killer:", model.Name)
+end
+
+local function UntrackKiller(model)
+    local e = TrackedKillers[model]
+    if not e then return end
+    pcall(function() e.label:Remove() end)
+    pcall(function() e.highlight:Destroy() end)
+    TrackedKillers[model] = nil
+end
+
+local function ShowAllKillers(show)
+    for _, e in pairs(TrackedKillers) do
+        if e.label then e.label.Visible = show end
+        if e.highlight then e.highlight.Enabled = show end
+    end
+end
+
+local function SetupKillerWatcher()
+    local playersFolder = workspace:FindFirstChild("PLAYERS")
+    if not playersFolder then return end
+
+    local function watchKillerFolder(folder)
+        if not folder then return end
+        for _, child in ipairs(folder:GetChildren()) do
+            if child:IsA("Model") then
+                TrackKiller(child)
+                if KillerESP.Enabled then
+                    local e = TrackedKillers[child]
+                    if e then
+                        e.label.Visible = true
+                        e.highlight.Enabled = true
+                    end
+                end
+            end
+        end
+        folder.ChildAdded:Connect(function(child)
+            if child:IsA("Model") then
+                TrackKiller(child)
+                if KillerESP.Enabled then
+                    local e = TrackedKillers[child]
+                    if e then
+                        e.label.Visible = true
+                        e.highlight.Enabled = true
+                    end
+                end
+            end
+        end)
+        folder.ChildRemoved:Connect(function(child)
+            UntrackKiller(child)
+        end)
+    end
+
+    local killerFolder = playersFolder:FindFirstChild("KILLER")
+    if killerFolder then
+        watchKillerFolder(killerFolder)
+    end
+
+    playersFolder.ChildAdded:Connect(function(child)
+        if child.Name == "KILLER" and child:IsA("Folder") then
+            watchKillerFolder(child)
+        end
+    end)
+end
+
+-- Initialize all trackers
+local function InitAll()
+    -- Traps
+    for _, m in ipairs(ScanTraps()) do TrackTrap(m) end
+    local ignore = workspace:FindFirstChild("IGNORE")
+    if ignore then
+        ignore.ChildAdded:Connect(function(child)
+            if IsTrapModel(child) then
+                TrackTrap(child)
+                if TrapESP.Enabled then
+                    local e = TrackedTraps[child]
+                    if e then
+                        e.label.Visible = true
+                        e.highlight.Enabled = true
+                    end
+                end
+            end
+        end)
+        ignore.ChildRemoved:Connect(function(child)
+            if IsTrapModel(child) then
+                UntrackTrap(child)
+            end
+        end)
+    end
+
+    -- Generators
+    for _, o in ipairs(ScanGenerators()) do TrackGenerator(o) end
+    local maps = workspace:FindFirstChild("MAPS")
+    if maps then
+        local gameMap = maps:FindFirstChild("GAME MAP")
+        if gameMap then
+            local genFolder = gameMap:FindFirstChild("Generators")
+            if genFolder then
+                genFolder.ChildAdded:Connect(function(c)
+                    TrackGenerator(c)
+                    if GeneratorESP.Enabled then
+                        local e = TrackedGenerators[c]
+                        if e then
+                            e.label.Visible = true
+                            e.highlight.Enabled = true
+                        end
+                    end
+                end)
+                genFolder.ChildRemoved:Connect(UntrackGenerator)
+            end
+        end
+    end
+
+    -- Killers
+    SetupKillerWatcher()
+    for _, m in ipairs(ScanKillers()) do TrackKiller(m) end
+end
+
+-- Render loop
+local function StartRenderLoop()
+    if RenderConnection then return end
+    RenderConnection = RunService.RenderStepped:Connect(function()
+        if Unloaded then return end
+
+        local root    = GetCharRoot()
+        local rootPos = root and root.Position or nil
+
+        -- Traps
+        if TrapESP.Enabled then
+            for model, e in pairs(TrackedTraps) do
+                if not model or not model.Parent then
+                    UntrackTrap(model)
+                else
+                    local pos = GetTrapPosition(model)
+                    if pos then
+                        local sp, depth, onScreen = W2S(pos)
+                        if onScreen and depth > 0 then
+                            e.label.Position = Vector2.new(sp.X, sp.Y - 30)
+                            e.label.Size     = TrapESP.LabelSize
+                            e.label.Color    = TrapESP.LabelColor
+                            e.label.Visible  = true
+                        else
+                            e.label.Visible = false
+                        end
+                    else
+                        e.label.Visible = false
+                    end
+                    e.highlight.Enabled             = true
+                    e.highlight.FillColor           = TrapESP.HighlightColor
+                    e.highlight.OutlineColor        = TrapESP.HighlightOutline
+                    e.highlight.FillTransparency    = TrapESP.HighlightFillTrans
+                    e.highlight.OutlineTransparency = TrapESP.HighlightOutlineTrans
+                end
+            end
+        else
+            ShowAllTraps(false)
+        end
+
+        -- Generators
+        if GeneratorESP.Enabled then
+            for obj, e in pairs(TrackedGenerators) do
+                if not obj or not obj.Parent then
+                    UntrackGenerator(obj)
+                else
+                    local center = ModelCenter(obj) or (obj:IsA("BasePart") and obj.Position or nil)
+                    local tooClose = center and rootPos and (center - rootPos).Magnitude <= GeneratorESP.ProximityRange
+                    if tooClose then
+                        e.label.Visible = false
+                        e.highlight.Enabled = false
+                    else
+                        if center then
+                            local sp, depth, onScreen = W2S(center)
+                            if onScreen and depth > 0 then
+                                e.label.Position = Vector2.new(sp.X, sp.Y - 30)
+                                e.label.Visible = true
+                            else
+                                e.label.Visible = false
+                            end
+                        else
+                            e.label.Visible = false
+                        end
+                        e.highlight.Enabled = true
+                        e.highlight.FillColor           = GeneratorESP.HighlightColor
+                        e.highlight.OutlineColor        = GeneratorESP.HighlightOutline
+                        e.highlight.FillTransparency    = GeneratorESP.HighlightFillTrans
+                        e.highlight.OutlineTransparency = GeneratorESP.HighlightOutlineTrans
+                    end
+                end
+            end
+        else
+            ShowAllGenerators(false)
+        end
+
+        -- Killers
+        if KillerESP.Enabled then
+            for model, e in pairs(TrackedKillers) do
+                if not model or not model.Parent then
+                    UntrackKiller(model)
+                else
+                    local center = ModelCenter(model)
+                    if center then
+                        local sp, depth, onScreen = W2S(center)
+                        if onScreen and depth > 0 then
+                            e.label.Position = Vector2.new(sp.X, sp.Y - 30)
+                            e.label.Visible = true
+                        else
+                            e.label.Visible = false
+                        end
+                    else
+                        e.label.Visible = false
+                    end
+                    e.highlight.Enabled = true
+                    e.highlight.FillColor           = KillerESP.HighlightColor
+                    e.highlight.OutlineColor        = KillerESP.HighlightOutline
+                    e.highlight.FillTransparency    = KillerESP.HighlightFillTrans
+                    e.highlight.OutlineTransparency = KillerESP.HighlightOutlineTrans
+                end
+            end
+        else
+            ShowAllKillers(false)
+        end
+    end)
+end
+
+-- Unload function
+local function Unload()
+    if Unloaded then return end
+    Unloaded = true
+
+    if RenderConnection then
+        RenderConnection:Disconnect()
+        RenderConnection = nil
+    end
+
+    for m in pairs(TrackedTraps) do UntrackTrap(m) end
+    for o in pairs(TrackedGenerators) do UntrackGenerator(o) end
+    for m in pairs(TrackedKillers) do UntrackKiller(m) end
+
+    pcall(function()
+        if Luna and Luna.Unload then
+            Luna:Unload()
+        end
+    end)
+    print("[ESP] Unloaded.")
+end
+
+-- ========================= LUNA UI =========================
+local Luna = loadstring(game:HttpGet("https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua", true))()
+
+local Window = Luna:CreateWindow({
+    Name           = "ESP Suite",
+    Subtitle       = "Trap | Generator | Killer",
+    LogoID         = nil,
+    LoadingEnabled = false,
+    KeySystem      = false,
+    ConfigSettings = {
+        RootFolder   = nil,
+        ConfigFolder = "ESPSuite"
+    },
+})
+
+Window:CreateHomeTab({
+    SupportedExecutors = {},
+    DiscordInvite = "",
+    Icon = 1
+})
+
+local MainTab = Window:CreateTab({
+    Name        = "Main",
+    Icon        = "view_in_ar",
+    ImageSource = "Material",
+    ShowTitle   = true,
+})
+
+MainTab:CreateSection("Traps")
+MainTab:CreateToggle({
+    Name         = "Bear Trap ESP",
+    Description  = "Highlights bear traps (only models named 'Trap') and shows a label.",
+    CurrentValue = false,
+    Callback     = function(v)
+        TrapESP.Enabled = v
+        if v then
+            for _, e in pairs(TrackedTraps) do
+                if e.label then e.label.Visible = true end
+                if e.highlight then e.highlight.Enabled = true end
+            end
+        else
+            ShowAllTraps(false)
+        end
+    end,
+}, "TrapESPToggle")
+
+MainTab:CreateSection("Generators")
+MainTab:CreateToggle({
+    Name         = "Generator ESP",
+    Description  = "Highlights generators. Hides when close.",
+    CurrentValue = false,
+    Callback     = function(v)
+        GeneratorESP.Enabled = v
+        if v then
+            for _, e in pairs(TrackedGenerators) do
+                if e.label then e.label.Visible = true end
+                if e.highlight then e.highlight.Enabled = true end
+            end
+        else
+            ShowAllGenerators(false)
+        end
+    end,
+}, "GeneratorESPToggle")
+
+MainTab:CreateSection("Killer")
+MainTab:CreateToggle({
+    Name         = "Killer ESP",
+    Description  = "Highlights the killer. Works across rounds.",
+    CurrentValue = false,
+    Callback     = function(v)
+        KillerESP.Enabled = v
+        if v then
+            for _, e in pairs(TrackedKillers) do
+                if e.label then e.label.Visible = true end
+                if e.highlight then e.highlight.Enabled = true end
+            end
+        else
+            ShowAllKillers(false)
+        end
+    end,
+}, "KillerESPToggle")
+
+MainTab:CreateSection("Settings")
+MainTab:CreateSlider({
+    Name         = "Trap Label Size",
+    Range        = {10, 24},
+    Increment    = 1,
+    CurrentValue = TrapESP.LabelSize,
+    Callback     = function(v) TrapESP.LabelSize = v end,
+}, "TrapLabelSize")
+
+MainTab:CreateSlider({
+    Name         = "Trap Highlight Transparency",
+    Range        = {0, 9},
+    Increment    = 1,
+    CurrentValue = math.floor(TrapESP.HighlightFillTrans * 10),
+    Callback     = function(v) TrapESP.HighlightFillTrans = v / 10 end,
+}, "TrapHighlightTrans")
+
+MainTab:CreateSlider({
+    Name         = "Generator Proximity Range",
+    Range        = {5, 60},
+    Increment    = 5,
+    CurrentValue = GeneratorESP.ProximityRange,
+    Callback     = function(v) GeneratorESP.ProximityRange = v end,
+}, "GenProximityRange")
+
+MainTab:CreateSection("Misc")
+MainTab:CreateButton({
+    Name        = "Unload",
+    Description = "Remove ESP and close UI.",
+    Callback    = Unload,
+})
+
+local ThemeTab = Window:CreateTab({
+    Name        = "Theme",
+    Icon        = "palette",
+    ImageSource = "Material",
+    ShowTitle   = true,
+})
+ThemeTab:BuildThemeSection()
+
+local ConfigTab = Window:CreateTab({
+    Name        = "Config",
+    Icon        = "settings",
+    ImageSource = "Material",
+    ShowTitle   = true,
+})
+ConfigTab:BuildConfigSection()
+
+InitAll()
+StartRenderLoop()
+
+Luna:Notification({
+    Title       = "ESP Suite",
+    Content     = "Loaded. Only bear traps (models named 'Trap') will be highlighted.",
+    Icon        = "warning",
+    ImageSource = "Material",
+})
+
+print("[ESP] Ready – trap filter active.")
