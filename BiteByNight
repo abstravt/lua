@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Camera = workspace.CurrentCamera
+local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 
 local TrapESP = {
@@ -45,6 +46,9 @@ local Noclip          = { Enabled = false, Conn = nil }
 local InfiniteJump    = { Enabled = false, Conn = nil }
 local AllowJumping    = { Enabled = false, Conn = nil }
 local AntiStun        = { Enabled = false, Conn = nil }
+
+local FullBright = { Enabled = false, Conn = nil }
+local NoFog       = { Enabled = false, Conn = nil, OriginalFogEnd = nil, ChildConn = nil }
 
 local function W2S(pos)
     local v, onScreen = Camera:WorldToViewportPoint(pos)
@@ -412,11 +416,54 @@ local function SetupAntiStun(enabled)
     end)
 end
 
+local function SetupFullBright(enabled)
+    if FullBright.Conn then FullBright.Conn:Disconnect(); FullBright.Conn = nil end
+    if not enabled then return end
+    FullBright.Conn = RunService.Heartbeat:Connect(function()
+        Lighting.Brightness = 2
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 100000
+        Lighting.GlobalShadows = false
+        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+    end)
+end
+
+local function SetupNoFog(enabled)
+    if NoFog.Conn then NoFog.Conn:Disconnect(); NoFog.Conn = nil end
+    if NoFog.ChildConn then NoFog.ChildConn:Disconnect(); NoFog.ChildConn = nil end
+
+    if not enabled then
+        if NoFog.OriginalFogEnd then
+            Lighting.FogEnd = NoFog.OriginalFogEnd
+        end
+        return
+    end
+
+    if NoFog.OriginalFogEnd == nil then
+        NoFog.OriginalFogEnd = Lighting.FogEnd
+    end
+
+    for _, obj in ipairs(Lighting:GetChildren()) do
+        if obj:IsA("Atmosphere") then obj:Destroy() end
+    end
+
+    NoFog.Conn = RunService.Heartbeat:Connect(function()
+        Lighting.FogEnd = 100000
+    end)
+    NoFog.ChildConn = Lighting.ChildAdded:Connect(function(child)
+        if child:IsA("Atmosphere") then child:Destroy() end
+    end)
+end
+
 local function CompleteGen()
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
     if not pg then return end
     local gf = pg:FindFirstChild("Gen")
-    if not gf or AutoGen.Done then return end
+    if not gf then
+        AutoGen.Done = false
+        return
+    end
+    if AutoGen.Done then return end
     local gm = gf:FindFirstChild("GeneratorMain")
     if not gm then return end
     local ev = gm:FindFirstChild("Event")
@@ -465,173 +512,191 @@ local function Unload()
     if InfiniteJump.Conn       then InfiniteJump.Conn:Disconnect()       end
     if AllowJumping.Conn       then AllowJumping.Conn:Disconnect()       end
     if AntiStun.Conn           then AntiStun.Conn:Disconnect()           end
+    if FullBright.Conn         then FullBright.Conn:Disconnect()         end
+    if NoFog.Conn              then NoFog.Conn:Disconnect()              end
+    if NoFog.ChildConn         then NoFog.ChildConn:Disconnect()         end
     StopEmote()
     for m in pairs(TrackedTraps)      do UntrackTrap(m)      end
     for o in pairs(TrackedGenerators) do UntrackGenerator(o) end
     for m in pairs(TrackedKillers)    do UntrackKiller(m)    end
-    pcall(function() Luna:Destroy() end)
+    if FluentUI then pcall(function() FluentUI:Destroy() end) end
 end
 
 SetupWatchers()
 StartRender()
 
-local Luna = loadstring(game:HttpGet("https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua", true))()
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
-local Window = Luna:CreateWindow({
-    Name           = "Bite By Night",
-    Subtitle       = "by EpicScripts67",
-    LogoID         = nil,
-    LoadingEnabled = false,
-    KeySystem      = false,
-    ConfigSettings = { RootFolder = nil, ConfigFolder = "BiteByNight" }
+local FluentWindow = Fluent:CreateWindow({
+    Title = "Bite By Night",
+    SubTitle = "by EpicScripts67",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl
 })
 
-Window:CreateHomeTab({ SupportedExecutors = {}, DiscordInvite = "", Icon = 1 })
+local Tabs = {
+    ESP = FluentWindow:AddTab({ Title = "ESP", Icon = "eye" }),
+    Blatant = FluentWindow:AddTab({ Title = "Blatant", Icon = "flash" }),
+    Emotes = FluentWindow:AddTab({ Title = "Emotes", Icon = "smile" }),
+    Extras = FluentWindow:AddTab({ Title = "Extras", Icon = "package" })
+}
 
-local ESPTab = Window:CreateTab({ Name = "ESP", Icon = "visibility", ImageSource = "Material", ShowTitle = true })
+Tabs.ESP:AddParagraph({
+    Title = "Detection",
+    Content = ""
+})
 
-ESPTab:CreateSection("Detection")
+local TrapToggle = Tabs.ESP:AddToggle("TrapESP", { Title = "Bear Trap ESP", Default = false })
+TrapToggle:OnChanged(function(v)
+    TrapESP.Enabled = v
+    if not v then ShowTable(TrackedTraps, false) end
+end)
 
-ESPTab:CreateToggle({
-    Name = "Bear Trap ESP",
-    Description = "Highlights bear traps through walls.",
-    CurrentValue = false,
-    Callback = function(v)
-        TrapESP.Enabled = v
-        if not v then ShowTable(TrackedTraps, false) end
-    end
-}, "TrapESPToggle")
+local GenToggle = Tabs.ESP:AddToggle("GenESP", { Title = "Generator ESP", Default = false })
+GenToggle:OnChanged(function(v)
+    GeneratorESP.Enabled = v
+    if not v then ShowTable(TrackedGenerators, false) end
+end)
 
-ESPTab:CreateToggle({
-    Name = "Generator ESP",
-    Description = "Highlights incomplete generators. Fades when nearby.",
-    CurrentValue = false,
-    Callback = function(v)
-        GeneratorESP.Enabled = v
-        if not v then ShowTable(TrackedGenerators, false) end
-    end
-}, "GeneratorESPToggle")
+local KillerToggle = Tabs.ESP:AddToggle("KillerESP", { Title = "Killer ESP", Default = false })
+KillerToggle:OnChanged(function(v)
+    KillerESP.Enabled = v
+    if not v then ShowTable(TrackedKillers, false) end
+end)
 
-ESPTab:CreateToggle({
-    Name = "Killer ESP",
-    Description = "Tracks the killer through all walls at all times.",
-    CurrentValue = false,
-    Callback = function(v)
-        KillerESP.Enabled = v
-        if not v then ShowTable(TrackedKillers, false) end
-    end
-}, "KillerESPToggle")
+Tabs.ESP:AddParagraph({
+    Title = "Settings",
+    Content = ""
+})
 
-ESPTab:CreateSection("Settings")
-
-ESPTab:CreateSlider({
-    Name = "Trap Label Size",
-    Range = {10, 24},
-    Increment = 1,
-    CurrentValue = TrapESP.LabelSize,
+local TrapSizeSlider = Tabs.ESP:AddSlider("TrapLabelSize", {
+    Title = "Trap Label Size",
+    Default = TrapESP.LabelSize,
+    Min = 10,
+    Max = 24,
+    Rounding = 1,
     Callback = function(v) TrapESP.LabelSize = v end
-}, "TrapLabelSize")
-
-ESPTab:CreateSlider({
-    Name = "Generator Proximity Range",
-    Range = {5, 60},
-    Increment = 5,
-    CurrentValue = GeneratorESP.ProximityRange,
-    Callback = function(v) GeneratorESP.ProximityRange = v end
-}, "GenProx")
-
-ESPTab:CreateSection("Utility")
-
-ESPTab:CreateButton({
-    Name = "Force Rescan",
-    Description = "Manually re-detect all entities on the map.",
-    Callback = function() FullRescan() end
 })
 
-local BlatantTab = Window:CreateTab({ Name = "Blatant", Icon = "flash_on", ImageSource = "Material", ShowTitle = true })
+local GenProxSlider = Tabs.ESP:AddSlider("GenProx", {
+    Title = "Generator Proximity Range",
+    Default = GeneratorESP.ProximityRange,
+    Min = 5,
+    Max = 60,
+    Rounding = 1,
+    Callback = function(v) GeneratorESP.ProximityRange = v end
+})
 
-BlatantTab:CreateSection("Movement")
+Tabs.ESP:AddButton({
+    Title = "Force Rescan",
+    Description = "Manually re-detect all entities.",
+    Callback = FullRescan
+})
 
-BlatantTab:CreateToggle({
-    Name = "Infinite Stamina",
-    Description = "Prevents stamina from depleting.",
-    CurrentValue = false,
-    Callback = function(v) InfiniteStamina.Enabled = v; SetupStamina() end
-}, "StaminaToggle")
+Tabs.Blatant:AddParagraph({ Title = "Movement", Content = "" })
 
-BlatantTab:CreateToggle({
-    Name = "Noclip",
-    Description = "Walk through any wall or object.",
-    CurrentValue = false,
-    Callback = function(v) Noclip.Enabled = v; SetupNoclip(v) end
-}, "NoclipToggle")
+local StaminaToggle = Tabs.Blatant:AddToggle("Stamina", { Title = "Infinite Stamina", Default = false })
+StaminaToggle:OnChanged(function(v)
+    InfiniteStamina.Enabled = v
+    SetupStamina()
+end)
 
-BlatantTab:CreateToggle({
-    Name = "Infinite Jump",
-    Description = "Jump repeatedly while in the air.",
-    CurrentValue = false,
-    Callback = function(v) InfiniteJump.Enabled = v; SetupInfiniteJump(v) end
-}, "InfiniteJumpToggle")
+local NoclipToggle = Tabs.Blatant:AddToggle("Noclip", { Title = "Noclip", Default = false })
+NoclipToggle:OnChanged(function(v)
+    Noclip.Enabled = v
+    SetupNoclip(v)
+end)
 
-BlatantTab:CreateToggle({
-    Name = "Allow Jumping",
-    Description = "Forces jump power every frame so the game cannot suppress it.",
-    CurrentValue = false,
-    Callback = function(v) AllowJumping.Enabled = v; SetupAllowJump(v) end
-}, "AllowJumpingToggle")
+local InfJumpToggle = Tabs.Blatant:AddToggle("InfJump", { Title = "Infinite Jump", Default = false })
+InfJumpToggle:OnChanged(function(v)
+    InfiniteJump.Enabled = v
+    SetupInfiniteJump(v)
+end)
 
-BlatantTab:CreateToggle({
-    Name = "Anti Stun",
-    Description = "Prevents the killer from stunning or tripping you.",
-    CurrentValue = false,
-    Callback = function(v) AntiStun.Enabled = v; SetupAntiStun(v) end
-}, "AntiStunToggle")
+local AllowJumpToggle = Tabs.Blatant:AddToggle("AllowJump", { Title = "Allow Jumping", Default = false })
+AllowJumpToggle:OnChanged(function(v)
+    AllowJumping.Enabled = v
+    SetupAllowJump(v)
+end)
 
-BlatantTab:CreateSection("Automation")
+local AntiStunToggle = Tabs.Blatant:AddToggle("AntiStun", { Title = "Anti Stun", Default = false })
+AntiStunToggle:OnChanged(function(v)
+    AntiStun.Enabled = v
+    SetupAntiStun(v)
+end)
 
-BlatantTab:CreateToggle({
-    Name = "Auto Complete Generator",
-    Description = "Automatically finishes any generator you interact with.",
-    CurrentValue = false,
-    Callback = function(v) AutoGen.Enabled = v; SetupAutoGen(v) end
-}, "AutoGenToggle")
+Tabs.Blatant:AddParagraph({ Title = "Automation", Content = "" })
 
-BlatantTab:CreateSection("Script")
+local AutoGenToggle = Tabs.Blatant:AddToggle("AutoGen", { Title = "Auto Complete Generator", Default = false })
+AutoGenToggle:OnChanged(function(v)
+    AutoGen.Enabled = v
+    SetupAutoGen(v)
+end)
 
-BlatantTab:CreateButton({
-    Name = "Unload Script",
+Tabs.Blatant:AddParagraph({ Title = "Script", Content = "" })
+
+Tabs.Blatant:AddButton({
+    Title = "Unload Script",
     Description = "Cleanly removes all ESP and disconnects everything.",
     Callback = Unload
 })
 
-local ExtraTab = Window:CreateTab({ Name = "Extra", Icon = "star", ImageSource = "Material", ShowTitle = true })
+Tabs.Emotes:AddParagraph({ Title = "Emote Controls", Content = "" })
 
-ExtraTab:CreateSection("Emote Controls")
-
-ExtraTab:CreateButton({
-    Name = "Stop Emote",
+Tabs.Emotes:AddButton({
+    Title = "Stop Emote",
     Description = "Immediately stop the current emote.",
     Callback = StopEmote
 })
 
-ExtraTab:CreateSection("Emotes")
+Tabs.Emotes:AddParagraph({ Title = "Emotes", Content = "" })
 
-for _, name in ipairs({
+local emoteList = {
     "Yoink Sploinky", "Smile", "RAAHH", "Prince of Egypt", "Panic", "PBJ",
     "Oh Yeah", "Mystery", "Jump for Joy", "Join us for a Bite", "Heroic Dance",
     "Hardstyle", "Friendly Stance", "Down", "Clown", "Boat Dance", "A Dare"
-}) do
-    ExtraTab:CreateButton({
-        Name = name,
-        Description = name == "Yoink Sploinky" and "Killer Only" or "Play emote: " .. name,
-        Callback = function() PlayEmote(name) end
+}
+for _, emote in ipairs(emoteList) do
+    local desc = (emote == "Yoink Sploinky") and "Killer Only" or "Play emote: " .. emote
+    Tabs.Emotes:AddButton({
+        Title = emote,
+        Description = desc,
+        Callback = function() PlayEmote(emote) end
     })
 end
 
+Tabs.Extras:AddParagraph({ Title = "Visuals", Content = "" })
+
+local FullBrightToggle = Tabs.Extras:AddToggle("FullBright", { Title = "LoopFullBright", Default = false })
+FullBrightToggle:OnChanged(function(v)
+    FullBright.Enabled = v
+    SetupFullBright(v)
+end)
+
+local NoFogToggle = Tabs.Extras:AddToggle("NoFog", { Title = "No Fog", Default = false })
+NoFogToggle:OnChanged(function(v)
+    NoFog.Enabled = v
+    SetupNoFog(v)
+end)
+
+Tabs.Extras:AddParagraph({ Title = "External Scripts", Content = "" })
+
+Tabs.Extras:AddButton({
+    Title = "INF yield",
+    Description = "Loads the Infinite Yield admin script.",
+    Callback = function()
+        loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-Infinite-Yield-43437"))()
+    end
+})
+
 setclipboard("https://discord.com/invite/u5SM9tFFTV")
-Luna:Notification({
-    Title       = "Bite By Night",
-    Icon        = "notifications_active",
-    ImageSource = "Material",
-    Content     = "Loaded successfully. Discord link copied to clipboard."
+Fluent:Notify({
+    Title = "Bite By Night",
+    Content = "Loaded successfully. Discord link copied to clipboard.",
+    Duration = 5
 })
