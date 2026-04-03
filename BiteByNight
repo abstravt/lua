@@ -1,38 +1,35 @@
 if getgenv then getgenv().ConfirmLuna = true end
-if not identifyexecutor then
-    identifyexecutor = function() return "Unknown" end
-end
+if not identifyexecutor then identifyexecutor = function() return "Unknown" end end
 
-local RunService       = game:GetService("RunService")
-local Players          = game:GetService("Players")
-local Camera           = workspace.CurrentCamera
-local LocalPlayer      = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
 
--- ESP settings
 local TrapESP = {
-    Enabled               = false,
-    LabelColor            = Color3.fromRGB(255, 60, 60),
-    LabelSize             = 14,
-    HighlightColor        = Color3.fromRGB(255, 60, 60),
-    HighlightOutline      = Color3.fromRGB(255, 200, 0),
-    HighlightFillTrans    = 0.5,
+    Enabled = false,
+    LabelColor = Color3.fromRGB(255, 70, 70),
+    LabelSize = 13,
+    HighlightColor = Color3.fromRGB(255, 60, 60),
+    HighlightOutline = Color3.fromRGB(255, 210, 0),
+    HighlightFillTrans = 0.55,
     HighlightOutlineTrans = 0,
 }
-
 local GeneratorESP = {
-    Enabled               = false,
-    ProximityRange        = 20,
-    HighlightColor        = Color3.fromRGB(0, 220, 255),
-    HighlightOutline      = Color3.fromRGB(255, 255, 255),
-    HighlightFillTrans    = 0.3,
+    Enabled = false,
+    ProximityRange = 20,
+    HighlightColor = Color3.fromRGB(0, 210, 255),
+    HighlightOutline = Color3.fromRGB(255, 255, 255),
+    HighlightFillTrans = 0.35,
     HighlightOutlineTrans = 0,
 }
-
 local KillerESP = {
-    Enabled               = false,
-    HighlightColor        = Color3.fromRGB(255, 30, 30),
-    HighlightOutline      = Color3.fromRGB(255, 140, 0),
-    HighlightFillTrans    = 0.2,
+    Enabled = false,
+    HighlightColor = Color3.fromRGB(220, 30, 30),
+    HighlightOutline = Color3.fromRGB(255, 100, 0),
+    HighlightFillTrans = 0.15,
     HighlightOutlineTrans = 0,
 }
 
@@ -42,50 +39,12 @@ local TrackedKillers    = {}
 local RenderConnection  = nil
 local Unloaded          = false
 
--- Helper functions
-local function MakeHighlight(parent, fillColor, outlineColor, fillTrans, outlineTrans)
-    local h = Instance.new("Highlight")
-    h.FillColor           = fillColor
-    h.OutlineColor        = outlineColor
-    h.FillTransparency    = fillTrans
-    h.OutlineTransparency = outlineTrans
-    h.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
-    h.Adornee             = parent
-    h.Parent              = parent
-    return h
-end
-
-local function MakeLabel(text, color, size)
-    local t = Drawing.new("Text")
-    t.Text    = text
-    t.Size    = size or 14
-    t.Color   = color
-    t.Outline = true
-    t.Center  = true
-    t.Visible = false
-    return t
-end
-
--- Get the actual position of a trap model (the part named "Trap" inside)
-local function GetTrapPosition(trapModel)
-    local trapPart = trapModel:FindFirstChild("Trap")
-    if trapPart and trapPart:IsA("BasePart") then
-        return trapPart.Position
-    end
-    local part = trapModel:FindFirstChildWhichIsA("BasePart")
-    if part then return part.Position end
-    return nil
-end
-
-local function ModelCenter(model)
-    local ok, cf = pcall(function() return model:GetBoundingBox() end)
-    if ok and cf then return cf.Position end
-    local primary = model.PrimaryPart
-    if primary then return primary.Position end
-    local part = model:FindFirstChildWhichIsA("BasePart")
-    if part then return part.Position end
-    return nil
-end
+local InfiniteStamina = { Enabled = false, Conn = nil }
+local AutoGen         = { Enabled = false, Conn = nil, Done = false }
+local Noclip          = { Enabled = false, Conn = nil }
+local InfiniteJump    = { Enabled = false, Conn = nil }
+local AllowJumping    = { Enabled = false, Conn = nil }
+local AntiStun        = { Enabled = false, Conn = nil }
 
 local function W2S(pos)
     local v, onScreen = Camera:WorldToViewportPoint(pos)
@@ -97,522 +56,582 @@ local function GetCharRoot()
     return char and char:FindFirstChild("HumanoidRootPart")
 end
 
--- ========== TRAPS (filtered to only models named "Trap") ==========
-local function IsTrapModel(model)
-    if not model:IsA("Model") then return false end
-    if model.Name ~= "Trap" then return false end
-    -- Optional: verify it contains a part named "Trap" (most traps do)
-    local trapPart = model:FindFirstChild("Trap")
-    if trapPart and trapPart:IsA("BasePart") then
-        return true
-    end
-    -- If no part named "Trap", still accept (fallback)
-    return true
+local function GetHumanoid()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChildWhichIsA("Humanoid")
 end
 
-local function ScanTraps()
-    local found = {}
-    local ignore = workspace:FindFirstChild("IGNORE")
-    if not ignore then
-        ignore = workspace:WaitForChild("IGNORE", 10)
-        if not ignore then return found end
-    end
-    for _, child in ipairs(ignore:GetChildren()) do
-        if IsTrapModel(child) then
-            table.insert(found, child)
-            print("[ESP] Found bear trap:", child.Name)
+local function FindBasePart(obj)
+    if obj:IsA("BasePart") then return obj end
+    if obj:IsA("Model") then
+        if obj.PrimaryPart then return obj.PrimaryPart end
+        for _, d in ipairs(obj:GetDescendants()) do
+            if d:IsA("BasePart") then return d end
         end
     end
-    return found
+    return nil
 end
 
-local function TrackTrap(model)
-    if not IsTrapModel(model) then return end
-    if TrackedTraps[model] then return end
-    local label = MakeLabel("Bear Trap", TrapESP.LabelColor, TrapESP.LabelSize)
-    local highlight = MakeHighlight(model, TrapESP.HighlightColor, TrapESP.HighlightOutline, TrapESP.HighlightFillTrans, TrapESP.HighlightOutlineTrans)
-    TrackedTraps[model] = {
-        label = label,
-        highlight = highlight,
-    }
-    print("[ESP] Tracking bear trap:", model.Name)
+local function GetCenter(obj)
+    if obj:IsA("Model") then
+        local ok, cf = pcall(function() return obj:GetBoundingBox() end)
+        if ok and cf then return cf.Position end
+        local p = FindBasePart(obj)
+        return p and p.Position
+    elseif obj:IsA("BasePart") then
+        return obj.Position
+    end
+    return nil
 end
 
-local function UntrackTrap(model)
-    local e = TrackedTraps[model]
+local function MakeHighlight(obj, fill, outline, fillTrans, outlineTrans)
+    local part = FindBasePart(obj)
+    if not part then return nil end
+    local h = Instance.new("Highlight")
+    h.FillColor           = fill
+    h.OutlineColor        = outline
+    h.FillTransparency    = fillTrans
+    h.OutlineTransparency = outlineTrans
+    h.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    h.Adornee             = obj:IsA("Model") and obj or part
+    h.Parent              = part
+    return h
+end
+
+local function MakeLabel(text, color, size)
+    local t   = Drawing.new("Text")
+    t.Text    = text
+    t.Size    = size or 13
+    t.Color   = color
+    t.Outline = true
+    t.Center  = true
+    t.Visible = false
+    t.Font    = Drawing.Fonts.UI
+    return t
+end
+
+local function DestroyEntry(e)
     if not e then return end
     pcall(function() e.label:Remove() end)
-    pcall(function() e.highlight:Destroy() end)
-    TrackedTraps[model] = nil
+    if e.highlight then pcall(function() e.highlight:Destroy() end) end
 end
 
-local function ShowAllTraps(show)
-    for _, e in pairs(TrackedTraps) do
-        if e.label then e.label.Visible = show end
+local function ShowTable(t, show)
+    for _, e in pairs(t) do
+        if e.label     then e.label.Visible     = show end
         if e.highlight then e.highlight.Enabled = show end
     end
 end
 
--- ========== GENERATORS ==========
-local function ScanGenerators()
-    local found = {}
-    local maps = workspace:FindFirstChild("MAPS")
-    if not maps then
-        maps = workspace:WaitForChild("MAPS", 5)
-        if not maps then return found end
-    end
-    local gameMap = maps:FindFirstChild("GAME MAP")
-    if not gameMap then
-        gameMap = maps:WaitForChild("GAME MAP", 5)
-        if not gameMap then return found end
-    end
-    local genFolder = gameMap:FindFirstChild("Generators")
-    if not genFolder then
-        genFolder = gameMap:WaitForChild("Generators", 5)
-        if not genFolder then return found end
-    end
-    for _, child in ipairs(genFolder:GetChildren()) do
-        if child:IsA("Model") or child:IsA("BasePart") then
-            table.insert(found, child)
-        end
-    end
-    return found
+local function IsGeneratorDone(obj)
+    local p = obj:GetAttribute("Progress") or obj:GetAttribute("progress")
+    return p == 100
+end
+
+local function IsTrap(obj)
+    return obj:IsA("Model") and obj.Name == "Trap"
+end
+
+local function GetTrapPos(model)
+    local inner = model:FindFirstChild("Trap")
+    if inner and inner:IsA("BasePart") then return inner.Position end
+    local p = FindBasePart(model)
+    return p and p.Position
+end
+
+local function TrackTrap(model)
+    if TrackedTraps[model] or not IsTrap(model) then return end
+    local h = MakeHighlight(model, TrapESP.HighlightColor, TrapESP.HighlightOutline, TrapESP.HighlightFillTrans, TrapESP.HighlightOutlineTrans)
+    TrackedTraps[model] = {
+        label     = MakeLabel("Bear Trap", TrapESP.LabelColor, TrapESP.LabelSize),
+        highlight = h,
+    }
+end
+
+local function UntrackTrap(model)
+    DestroyEntry(TrackedTraps[model])
+    TrackedTraps[model] = nil
 end
 
 local function TrackGenerator(obj)
-    if TrackedGenerators[obj] then return end
+    if TrackedGenerators[obj] or IsGeneratorDone(obj) or not FindBasePart(obj) then return end
+    local h = MakeHighlight(obj, GeneratorESP.HighlightColor, GeneratorESP.HighlightOutline, GeneratorESP.HighlightFillTrans, GeneratorESP.HighlightOutlineTrans)
+    if not h then return end
     TrackedGenerators[obj] = {
-        label = MakeLabel("Generator", Color3.fromRGB(0, 220, 255), 14),
-        highlight = MakeHighlight(obj, GeneratorESP.HighlightColor, GeneratorESP.HighlightOutline, GeneratorESP.HighlightFillTrans, GeneratorESP.HighlightOutlineTrans),
+        label     = MakeLabel("Generator", Color3.fromRGB(0, 210, 255), 13),
+        highlight = h,
     }
 end
 
 local function UntrackGenerator(obj)
-    local e = TrackedGenerators[obj]
-    if not e then return end
-    pcall(function() e.label:Remove() end)
-    pcall(function() e.highlight:Destroy() end)
+    DestroyEntry(TrackedGenerators[obj])
     TrackedGenerators[obj] = nil
 end
 
-local function ShowAllGenerators(show)
-    for _, e in pairs(TrackedGenerators) do
-        if e.label then e.label.Visible = show end
-        if e.highlight then e.highlight.Enabled = show end
-    end
-end
-
--- ========== KILLERS (robust for round changes) ==========
-local function ScanKillers()
-    local found = {}
-    local playersFolder = workspace:FindFirstChild("PLAYERS")
-    if not playersFolder then
-        playersFolder = workspace:WaitForChild("PLAYERS", 5)
-        if not playersFolder then return found end
-    end
-    local killerFolder = playersFolder:FindFirstChild("KILLER")
-    if not killerFolder then
-        killerFolder = playersFolder:WaitForChild("KILLER", 5)
-        if not killerFolder then return found end
-    end
-    for _, child in ipairs(killerFolder:GetChildren()) do
-        if child:IsA("Model") then
-            table.insert(found, child)
-        end
-    end
-    return found
-end
-
 local function TrackKiller(model)
-    if TrackedKillers[model] then return end
+    if TrackedKillers[model] or not model:IsA("Model") then return end
+    local h = MakeHighlight(model, KillerESP.HighlightColor, KillerESP.HighlightOutline, KillerESP.HighlightFillTrans, KillerESP.HighlightOutlineTrans)
     TrackedKillers[model] = {
-        label = MakeLabel("KILLER", Color3.fromRGB(255, 30, 30), 16),
-        highlight = MakeHighlight(model, KillerESP.HighlightColor, KillerESP.HighlightOutline, KillerESP.HighlightFillTrans, KillerESP.HighlightOutlineTrans),
+        label     = MakeLabel("KILLER", Color3.fromRGB(220, 30, 30), 15),
+        highlight = h,
     }
-    print("[ESP] Tracking killer:", model.Name)
 end
 
 local function UntrackKiller(model)
-    local e = TrackedKillers[model]
-    if not e then return end
-    pcall(function() e.label:Remove() end)
-    pcall(function() e.highlight:Destroy() end)
+    DestroyEntry(TrackedKillers[model])
     TrackedKillers[model] = nil
 end
 
-local function ShowAllKillers(show)
-    for _, e in pairs(TrackedKillers) do
-        if e.label then e.label.Visible = show end
-        if e.highlight then e.highlight.Enabled = show end
-    end
-end
-
-local function SetupKillerWatcher()
-    local playersFolder = workspace:FindFirstChild("PLAYERS")
-    if not playersFolder then return end
-
-    local function watchKillerFolder(folder)
-        if not folder then return end
-        for _, child in ipairs(folder:GetChildren()) do
-            if child:IsA("Model") then
-                TrackKiller(child)
-                if KillerESP.Enabled then
-                    local e = TrackedKillers[child]
-                    if e then
-                        e.label.Visible = true
-                        e.highlight.Enabled = true
-                    end
-                end
-            end
-        end
-        folder.ChildAdded:Connect(function(child)
-            if child:IsA("Model") then
-                TrackKiller(child)
-                if KillerESP.Enabled then
-                    local e = TrackedKillers[child]
-                    if e then
-                        e.label.Visible = true
-                        e.highlight.Enabled = true
-                    end
-                end
-            end
-        end)
-        folder.ChildRemoved:Connect(function(child)
-            UntrackKiller(child)
-        end)
-    end
-
-    local killerFolder = playersFolder:FindFirstChild("KILLER")
-    if killerFolder then
-        watchKillerFolder(killerFolder)
-    end
-
-    playersFolder.ChildAdded:Connect(function(child)
-        if child.Name == "KILLER" and child:IsA("Folder") then
-            watchKillerFolder(child)
-        end
+local function WireGenSignals(c)
+    c:GetAttributeChangedSignal("Progress"):Connect(function()
+        if IsGeneratorDone(c) then UntrackGenerator(c) end
+    end)
+    c:GetAttributeChangedSignal("progress"):Connect(function()
+        if IsGeneratorDone(c) then UntrackGenerator(c) end
     end)
 end
 
--- Initialize all trackers
-local function InitAll()
-    -- Traps
-    for _, m in ipairs(ScanTraps()) do TrackTrap(m) end
+local function FullRescan()
+    for m in pairs(TrackedTraps)      do UntrackTrap(m)      end
+    for o in pairs(TrackedGenerators) do UntrackGenerator(o) end
+    for m in pairs(TrackedKillers)    do UntrackKiller(m)    end
+
     local ignore = workspace:FindFirstChild("IGNORE")
     if ignore then
-        ignore.ChildAdded:Connect(function(child)
-            if IsTrapModel(child) then
-                TrackTrap(child)
-                if TrapESP.Enabled then
-                    local e = TrackedTraps[child]
-                    if e then
-                        e.label.Visible = true
-                        e.highlight.Enabled = true
-                    end
-                end
-            end
-        end)
-        ignore.ChildRemoved:Connect(function(child)
-            if IsTrapModel(child) then
-                UntrackTrap(child)
-            end
-        end)
-    end
-
-    -- Generators
-    for _, o in ipairs(ScanGenerators()) do TrackGenerator(o) end
-    local maps = workspace:FindFirstChild("MAPS")
-    if maps then
-        local gameMap = maps:FindFirstChild("GAME MAP")
-        if gameMap then
-            local genFolder = gameMap:FindFirstChild("Generators")
-            if genFolder then
-                genFolder.ChildAdded:Connect(function(c)
-                    TrackGenerator(c)
-                    if GeneratorESP.Enabled then
-                        local e = TrackedGenerators[c]
-                        if e then
-                            e.label.Visible = true
-                            e.highlight.Enabled = true
-                        end
-                    end
-                end)
-                genFolder.ChildRemoved:Connect(UntrackGenerator)
-            end
+        for _, c in ipairs(ignore:GetChildren()) do
+            if IsTrap(c) then TrackTrap(c) end
         end
     end
 
-    -- Killers
-    SetupKillerWatcher()
-    for _, m in ipairs(ScanKillers()) do TrackKiller(m) end
+    local maps = workspace:FindFirstChild("MAPS")
+    local gm   = maps and maps:FindFirstChild("GAME MAP")
+    local gf   = gm and gm:FindFirstChild("Generators")
+    if gf then
+        for _, c in ipairs(gf:GetChildren()) do
+            TrackGenerator(c)
+            WireGenSignals(c)
+        end
+    end
+
+    local pf = workspace:FindFirstChild("PLAYERS")
+    local kf = pf and pf:FindFirstChild("KILLER")
+    if kf then
+        for _, c in ipairs(kf:GetChildren()) do
+            if c:IsA("Model") then TrackKiller(c) end
+        end
+    end
 end
 
--- Render loop
-local function StartRenderLoop()
+local function SetupWatchers()
+    task.spawn(function()
+        local ignore = workspace:FindFirstChild("IGNORE") or workspace:WaitForChild("IGNORE", 30)
+        if not ignore then return end
+
+        ignore.ChildAdded:Connect(function(c)
+            if IsTrap(c) then TrackTrap(c) end
+        end)
+        ignore.ChildRemoved:Connect(function(c) UntrackTrap(c) end)
+
+        for _, c in ipairs(ignore:GetChildren()) do
+            if IsTrap(c) then TrackTrap(c) end
+        end
+    end)
+
+    task.spawn(function()
+        local maps = workspace:FindFirstChild("MAPS") or workspace:WaitForChild("MAPS", 60)
+        if not maps then return end
+
+        local function setupGenerators(gm)
+            local gf = gm:FindFirstChild("Generators") or gm:WaitForChild("Generators", 30)
+            if not gf then return end
+            for _, c in ipairs(gf:GetChildren()) do
+                TrackGenerator(c)
+                WireGenSignals(c)
+            end
+            gf.ChildAdded:Connect(function(c)
+                TrackGenerator(c)
+                WireGenSignals(c)
+            end)
+            gf.ChildRemoved:Connect(function(c) UntrackGenerator(c) end)
+        end
+
+        local gm = maps:FindFirstChild("GAME MAP") or maps:WaitForChild("GAME MAP", 60)
+        if gm then setupGenerators(gm) end
+
+        maps.ChildAdded:Connect(function(c)
+            if c.Name == "GAME MAP" then
+                task.wait(1)
+                FullRescan()
+                setupGenerators(c)
+            end
+        end)
+    end)
+
+    task.spawn(function()
+        local pf = workspace:FindFirstChild("PLAYERS") or workspace:WaitForChild("PLAYERS", 60)
+        if not pf then return end
+
+        local function watchKiller(kf)
+            for _, c in ipairs(kf:GetChildren()) do
+                if c:IsA("Model") then TrackKiller(c) end
+            end
+            kf.ChildAdded:Connect(function(c)
+                if c:IsA("Model") then TrackKiller(c) end
+            end)
+            kf.ChildRemoved:Connect(function(c) UntrackKiller(c) end)
+        end
+
+        local kf = pf:FindFirstChild("KILLER") or pf:WaitForChild("KILLER", 60)
+        if kf then watchKiller(kf) end
+
+        pf.ChildAdded:Connect(function(c)
+            if c.Name == "KILLER" then
+                task.wait(0.5)
+                watchKiller(c)
+            end
+        end)
+    end)
+end
+
+local function RenderESP(tracked, enabled, getPos, cfg, useProximity)
+    local rootPos = useProximity and (function()
+        local r = GetCharRoot()
+        return r and r.Position
+    end)() or nil
+
+    local dead = {}
+    for obj, e in pairs(tracked) do
+        if not obj or not obj.Parent then
+            table.insert(dead, obj)
+        elseif not enabled then
+            if e.label     then e.label.Visible     = false end
+            if e.highlight then e.highlight.Enabled = false end
+        else
+            local pos      = getPos(obj)
+            local tooClose = useProximity and rootPos and pos and (pos - rootPos).Magnitude <= (cfg.ProximityRange or 20)
+
+            if tooClose then
+                if e.label     then e.label.Visible     = false end
+                if e.highlight then e.highlight.Enabled = false end
+            elseif pos then
+                local sp, depth, onScreen = W2S(pos)
+                if onScreen and depth > 0 then
+                    e.label.Position = Vector2.new(sp.X, sp.Y - 28)
+                    e.label.Visible  = true
+                else
+                    e.label.Visible = false
+                end
+                if e.highlight then e.highlight.Enabled = true end
+            else
+                if e.label then e.label.Visible = false end
+            end
+        end
+    end
+    return dead
+end
+
+local function StartRender()
     if RenderConnection then return end
     RenderConnection = RunService.RenderStepped:Connect(function()
         if Unloaded then return end
 
-        local root    = GetCharRoot()
-        local rootPos = root and root.Position or nil
+        local td = RenderESP(TrackedTraps,      TrapESP.Enabled,      GetTrapPos, TrapESP,      false)
+        local gd = RenderESP(TrackedGenerators, GeneratorESP.Enabled, GetCenter,  GeneratorESP, true)
+        local kd = RenderESP(TrackedKillers,    KillerESP.Enabled,    GetCenter,  KillerESP,    false)
 
-        -- Traps
-        if TrapESP.Enabled then
-            for model, e in pairs(TrackedTraps) do
-                if not model or not model.Parent then
-                    UntrackTrap(model)
-                else
-                    local pos = GetTrapPosition(model)
-                    if pos then
-                        local sp, depth, onScreen = W2S(pos)
-                        if onScreen and depth > 0 then
-                            e.label.Position = Vector2.new(sp.X, sp.Y - 30)
-                            e.label.Size     = TrapESP.LabelSize
-                            e.label.Color    = TrapESP.LabelColor
-                            e.label.Visible  = true
-                        else
-                            e.label.Visible = false
-                        end
-                    else
-                        e.label.Visible = false
-                    end
-                    e.highlight.Enabled             = true
-                    e.highlight.FillColor           = TrapESP.HighlightColor
-                    e.highlight.OutlineColor        = TrapESP.HighlightOutline
-                    e.highlight.FillTransparency    = TrapESP.HighlightFillTrans
-                    e.highlight.OutlineTransparency = TrapESP.HighlightOutlineTrans
-                end
+        for _, m in ipairs(td) do UntrackTrap(m)      end
+        for _, o in ipairs(gd) do UntrackGenerator(o) end
+        for _, m in ipairs(kd) do UntrackKiller(m)    end
+    end)
+end
+
+local function SetupStamina()
+    if InfiniteStamina.Conn then InfiniteStamina.Conn:Disconnect() end
+    if not InfiniteStamina.Enabled then return end
+    InfiniteStamina.Conn = RunService.Heartbeat:Connect(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        if char:GetAttribute("Stamina") ~= math.huge then char:SetAttribute("Stamina", math.huge) end
+        if char:GetAttribute("Running") ~= true       then char:SetAttribute("Running", true)      end
+    end)
+end
+
+local function SetupNoclip(enabled)
+    if Noclip.Conn then Noclip.Conn:Disconnect(); Noclip.Conn = nil end
+    if not enabled then
+        local char = LocalPlayer.Character
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = true end
             end
-        else
-            ShowAllTraps(false)
         end
-
-        -- Generators
-        if GeneratorESP.Enabled then
-            for obj, e in pairs(TrackedGenerators) do
-                if not obj or not obj.Parent then
-                    UntrackGenerator(obj)
-                else
-                    local center = ModelCenter(obj) or (obj:IsA("BasePart") and obj.Position or nil)
-                    local tooClose = center and rootPos and (center - rootPos).Magnitude <= GeneratorESP.ProximityRange
-                    if tooClose then
-                        e.label.Visible = false
-                        e.highlight.Enabled = false
-                    else
-                        if center then
-                            local sp, depth, onScreen = W2S(center)
-                            if onScreen and depth > 0 then
-                                e.label.Position = Vector2.new(sp.X, sp.Y - 30)
-                                e.label.Visible = true
-                            else
-                                e.label.Visible = false
-                            end
-                        else
-                            e.label.Visible = false
-                        end
-                        e.highlight.Enabled = true
-                        e.highlight.FillColor           = GeneratorESP.HighlightColor
-                        e.highlight.OutlineColor        = GeneratorESP.HighlightOutline
-                        e.highlight.FillTransparency    = GeneratorESP.HighlightFillTrans
-                        e.highlight.OutlineTransparency = GeneratorESP.HighlightOutlineTrans
-                    end
-                end
-            end
-        else
-            ShowAllGenerators(false)
-        end
-
-        -- Killers
-        if KillerESP.Enabled then
-            for model, e in pairs(TrackedKillers) do
-                if not model or not model.Parent then
-                    UntrackKiller(model)
-                else
-                    local center = ModelCenter(model)
-                    if center then
-                        local sp, depth, onScreen = W2S(center)
-                        if onScreen and depth > 0 then
-                            e.label.Position = Vector2.new(sp.X, sp.Y - 30)
-                            e.label.Visible = true
-                        else
-                            e.label.Visible = false
-                        end
-                    else
-                        e.label.Visible = false
-                    end
-                    e.highlight.Enabled = true
-                    e.highlight.FillColor           = KillerESP.HighlightColor
-                    e.highlight.OutlineColor        = KillerESP.HighlightOutline
-                    e.highlight.FillTransparency    = KillerESP.HighlightFillTrans
-                    e.highlight.OutlineTransparency = KillerESP.HighlightOutlineTrans
-                end
-            end
-        else
-            ShowAllKillers(false)
+        return
+    end
+    Noclip.Conn = RunService.Stepped:Connect(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
         end
     end)
 end
 
--- Unload function
+local function SetupInfiniteJump(enabled)
+    if InfiniteJump.Conn then InfiniteJump.Conn:Disconnect(); InfiniteJump.Conn = nil end
+    if not enabled then return end
+    InfiniteJump.Conn = UserInputService.JumpRequest:Connect(function()
+        local hum = GetHumanoid()
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end)
+end
+
+local function SetupAllowJump(enabled)
+    if AllowJumping.Conn then AllowJumping.Conn:Disconnect(); AllowJumping.Conn = nil end
+    if not enabled then return end
+    AllowJumping.Conn = RunService.Heartbeat:Connect(function()
+        local hum = GetHumanoid()
+        if not hum then return end
+        if hum.UseJumpPower then
+            hum.JumpPower = 50
+        else
+            hum.JumpHeight = 7.2
+        end
+    end)
+end
+
+local function SetupAntiStun(enabled)
+    if AntiStun.Conn then AntiStun.Conn:Disconnect(); AntiStun.Conn = nil end
+    if not enabled then return end
+    AntiStun.Conn = RunService.Heartbeat:Connect(function()
+        local hum = GetHumanoid()
+        if not hum then return end
+        if hum.PlatformStand then hum.PlatformStand = false end
+        if hum:GetState() == Enum.HumanoidStateType.FallingDown then
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end)
+end
+
+local function CompleteGen()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return end
+    local gf = pg:FindFirstChild("Gen")
+    if not gf or AutoGen.Done then return end
+    local gm = gf:FindFirstChild("GeneratorMain")
+    if not gm then return end
+    local ev = gm:FindFirstChild("Event")
+    if not ev or not ev:IsA("RemoteEvent") then return end
+    for _ = 1, 4 do
+        ev:FireServer({ Wires = true, Switches = true, Lever = true })
+        task.wait(0.05)
+    end
+    AutoGen.Done = true
+end
+
+local function SetupAutoGen(enabled)
+    if AutoGen.Conn then AutoGen.Conn:Disconnect(); AutoGen.Conn = nil end
+    AutoGen.Done = false
+    if not enabled then return end
+    AutoGen.Conn = RunService.Heartbeat:Connect(CompleteGen)
+end
+
+local CurrentEmote = nil
+local function PlayEmote(name)
+    local char = LocalPlayer.Character
+    local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not hum then return end
+    local mods   = ReplicatedStorage:FindFirstChild("Modules")
+    local emotes = mods and mods:FindFirstChild("Emotes")
+    local emote  = emotes and emotes:FindFirstChild(name)
+    local anim   = emote and emote:FindFirstChild("Loop")
+    if not anim or not anim:IsA("Animation") then return end
+    if CurrentEmote and CurrentEmote.IsPlaying then CurrentEmote:Stop() end
+    CurrentEmote = hum:LoadAnimation(anim)
+    CurrentEmote:Play()
+end
+
+local function StopEmote()
+    if CurrentEmote and CurrentEmote.IsPlaying then CurrentEmote:Stop() end
+    CurrentEmote = nil
+end
+
 local function Unload()
     if Unloaded then return end
     Unloaded = true
-
-    if RenderConnection then
-        RenderConnection:Disconnect()
-        RenderConnection = nil
-    end
-
-    for m in pairs(TrackedTraps) do UntrackTrap(m) end
+    if RenderConnection        then RenderConnection:Disconnect()        end
+    if InfiniteStamina.Conn    then InfiniteStamina.Conn:Disconnect()   end
+    if AutoGen.Conn            then AutoGen.Conn:Disconnect()            end
+    if Noclip.Conn             then Noclip.Conn:Disconnect()             end
+    if InfiniteJump.Conn       then InfiniteJump.Conn:Disconnect()       end
+    if AllowJumping.Conn       then AllowJumping.Conn:Disconnect()       end
+    if AntiStun.Conn           then AntiStun.Conn:Disconnect()           end
+    StopEmote()
+    for m in pairs(TrackedTraps)      do UntrackTrap(m)      end
     for o in pairs(TrackedGenerators) do UntrackGenerator(o) end
-    for m in pairs(TrackedKillers) do UntrackKiller(m) end
-
-    pcall(function()
-        if Luna and Luna.Unload then
-            Luna:Unload()
-        end
-    end)
-    print("[ESP] Unloaded.")
+    for m in pairs(TrackedKillers)    do UntrackKiller(m)    end
+    pcall(function() Luna:Destroy() end)
 end
 
--- ========================= LUNA UI =========================
+SetupWatchers()
+StartRender()
+
 local Luna = loadstring(game:HttpGet("https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua", true))()
 
 local Window = Luna:CreateWindow({
-    Name           = "ESP Suite",
-    Subtitle       = "Trap | Generator | Killer",
+    Name           = "Bite By Night",
+    Subtitle       = "by EpicScripts67",
     LogoID         = nil,
     LoadingEnabled = false,
     KeySystem      = false,
-    ConfigSettings = {
-        RootFolder   = nil,
-        ConfigFolder = "ESPSuite"
-    },
+    ConfigSettings = { RootFolder = nil, ConfigFolder = "BiteByNight" }
 })
 
-Window:CreateHomeTab({
-    SupportedExecutors = {},
-    DiscordInvite = "",
-    Icon = 1
-})
+Window:CreateHomeTab({ SupportedExecutors = {}, DiscordInvite = "", Icon = 1 })
 
-local MainTab = Window:CreateTab({
-    Name        = "Main",
-    Icon        = "view_in_ar",
-    ImageSource = "Material",
-    ShowTitle   = true,
-})
+local ESPTab = Window:CreateTab({ Name = "ESP", Icon = "visibility", ImageSource = "Material", ShowTitle = true })
 
-MainTab:CreateSection("Traps")
-MainTab:CreateToggle({
-    Name         = "Bear Trap ESP",
-    Description  = "Highlights bear traps (only models named 'Trap') and shows a label.",
+ESPTab:CreateSection("Detection")
+
+ESPTab:CreateToggle({
+    Name = "Bear Trap ESP",
+    Description = "Highlights bear traps through walls.",
     CurrentValue = false,
-    Callback     = function(v)
+    Callback = function(v)
         TrapESP.Enabled = v
-        if v then
-            for _, e in pairs(TrackedTraps) do
-                if e.label then e.label.Visible = true end
-                if e.highlight then e.highlight.Enabled = true end
-            end
-        else
-            ShowAllTraps(false)
-        end
-    end,
+        if not v then ShowTable(TrackedTraps, false) end
+    end
 }, "TrapESPToggle")
 
-MainTab:CreateSection("Generators")
-MainTab:CreateToggle({
-    Name         = "Generator ESP",
-    Description  = "Highlights generators. Hides when close.",
+ESPTab:CreateToggle({
+    Name = "Generator ESP",
+    Description = "Highlights incomplete generators. Fades when nearby.",
     CurrentValue = false,
-    Callback     = function(v)
+    Callback = function(v)
         GeneratorESP.Enabled = v
-        if v then
-            for _, e in pairs(TrackedGenerators) do
-                if e.label then e.label.Visible = true end
-                if e.highlight then e.highlight.Enabled = true end
-            end
-        else
-            ShowAllGenerators(false)
-        end
-    end,
+        if not v then ShowTable(TrackedGenerators, false) end
+    end
 }, "GeneratorESPToggle")
 
-MainTab:CreateSection("Killer")
-MainTab:CreateToggle({
-    Name         = "Killer ESP",
-    Description  = "Highlights the killer. Works across rounds.",
+ESPTab:CreateToggle({
+    Name = "Killer ESP",
+    Description = "Tracks the killer through all walls at all times.",
     CurrentValue = false,
-    Callback     = function(v)
+    Callback = function(v)
         KillerESP.Enabled = v
-        if v then
-            for _, e in pairs(TrackedKillers) do
-                if e.label then e.label.Visible = true end
-                if e.highlight then e.highlight.Enabled = true end
-            end
-        else
-            ShowAllKillers(false)
-        end
-    end,
+        if not v then ShowTable(TrackedKillers, false) end
+    end
 }, "KillerESPToggle")
 
-MainTab:CreateSection("Settings")
-MainTab:CreateSlider({
-    Name         = "Trap Label Size",
-    Range        = {10, 24},
-    Increment    = 1,
+ESPTab:CreateSection("Settings")
+
+ESPTab:CreateSlider({
+    Name = "Trap Label Size",
+    Range = {10, 24},
+    Increment = 1,
     CurrentValue = TrapESP.LabelSize,
-    Callback     = function(v) TrapESP.LabelSize = v end,
+    Callback = function(v) TrapESP.LabelSize = v end
 }, "TrapLabelSize")
 
-MainTab:CreateSlider({
-    Name         = "Trap Highlight Transparency",
-    Range        = {0, 9},
-    Increment    = 1,
-    CurrentValue = math.floor(TrapESP.HighlightFillTrans * 10),
-    Callback     = function(v) TrapESP.HighlightFillTrans = v / 10 end,
-}, "TrapHighlightTrans")
-
-MainTab:CreateSlider({
-    Name         = "Generator Proximity Range",
-    Range        = {5, 60},
-    Increment    = 5,
+ESPTab:CreateSlider({
+    Name = "Generator Proximity Range",
+    Range = {5, 60},
+    Increment = 5,
     CurrentValue = GeneratorESP.ProximityRange,
-    Callback     = function(v) GeneratorESP.ProximityRange = v end,
-}, "GenProximityRange")
+    Callback = function(v) GeneratorESP.ProximityRange = v end
+}, "GenProx")
 
-MainTab:CreateSection("Misc")
-MainTab:CreateButton({
-    Name        = "Unload",
-    Description = "Remove ESP and close UI.",
-    Callback    = Unload,
+ESPTab:CreateSection("Utility")
+
+ESPTab:CreateButton({
+    Name = "Force Rescan",
+    Description = "Manually re-detect all entities on the map.",
+    Callback = function() FullRescan() end
 })
 
-local ThemeTab = Window:CreateTab({
-    Name        = "Theme",
-    Icon        = "palette",
-    ImageSource = "Material",
-    ShowTitle   = true,
+local BlatantTab = Window:CreateTab({ Name = "Blatant", Icon = "flash_on", ImageSource = "Material", ShowTitle = true })
+
+BlatantTab:CreateSection("Movement")
+
+BlatantTab:CreateToggle({
+    Name = "Infinite Stamina",
+    Description = "Prevents stamina from depleting.",
+    CurrentValue = false,
+    Callback = function(v) InfiniteStamina.Enabled = v; SetupStamina() end
+}, "StaminaToggle")
+
+BlatantTab:CreateToggle({
+    Name = "Noclip",
+    Description = "Walk through any wall or object.",
+    CurrentValue = false,
+    Callback = function(v) Noclip.Enabled = v; SetupNoclip(v) end
+}, "NoclipToggle")
+
+BlatantTab:CreateToggle({
+    Name = "Infinite Jump",
+    Description = "Jump repeatedly while in the air.",
+    CurrentValue = false,
+    Callback = function(v) InfiniteJump.Enabled = v; SetupInfiniteJump(v) end
+}, "InfiniteJumpToggle")
+
+BlatantTab:CreateToggle({
+    Name = "Allow Jumping",
+    Description = "Forces jump power every frame so the game cannot suppress it.",
+    CurrentValue = false,
+    Callback = function(v) AllowJumping.Enabled = v; SetupAllowJump(v) end
+}, "AllowJumpingToggle")
+
+BlatantTab:CreateToggle({
+    Name = "Anti Stun",
+    Description = "Prevents the killer from stunning or tripping you.",
+    CurrentValue = false,
+    Callback = function(v) AntiStun.Enabled = v; SetupAntiStun(v) end
+}, "AntiStunToggle")
+
+BlatantTab:CreateSection("Automation")
+
+BlatantTab:CreateToggle({
+    Name = "Auto Complete Generator",
+    Description = "Automatically finishes any generator you interact with.",
+    CurrentValue = false,
+    Callback = function(v) AutoGen.Enabled = v; SetupAutoGen(v) end
+}, "AutoGenToggle")
+
+BlatantTab:CreateSection("Script")
+
+BlatantTab:CreateButton({
+    Name = "Unload Script",
+    Description = "Cleanly removes all ESP and disconnects everything.",
+    Callback = Unload
 })
-ThemeTab:BuildThemeSection()
 
-local ConfigTab = Window:CreateTab({
-    Name        = "Config",
-    Icon        = "settings",
-    ImageSource = "Material",
-    ShowTitle   = true,
+local ExtraTab = Window:CreateTab({ Name = "Extra", Icon = "star", ImageSource = "Material", ShowTitle = true })
+
+ExtraTab:CreateSection("Emote Controls")
+
+ExtraTab:CreateButton({
+    Name = "Stop Emote",
+    Description = "Immediately stop the current emote.",
+    Callback = StopEmote
 })
-ConfigTab:BuildConfigSection()
 
-InitAll()
-StartRenderLoop()
+ExtraTab:CreateSection("Emotes")
 
+for _, name in ipairs({
+    "Yoink Sploinky", "Smile", "RAAHH", "Prince of Egypt", "Panic", "PBJ",
+    "Oh Yeah", "Mystery", "Jump for Joy", "Join us for a Bite", "Heroic Dance",
+    "Hardstyle", "Friendly Stance", "Down", "Clown", "Boat Dance", "A Dare"
+}) do
+    ExtraTab:CreateButton({
+        Name = name,
+        Description = name == "Yoink Sploinky" and "Killer Only" or "Play emote: " .. name,
+        Callback = function() PlayEmote(name) end
+    })
+end
+
+setclipboard("https://discord.com/invite/u5SM9tFFTV")
 Luna:Notification({
-    Title       = "ESP Suite",
-    Content     = "Loaded. Only bear traps (models named 'Trap') will be highlighted.",
-    Icon        = "warning",
+    Title       = "Bite By Night",
+    Icon        = "notifications_active",
     ImageSource = "Material",
+    Content     = "Loaded successfully. Discord link copied to clipboard."
 })
-
-print("[ESP] Ready – trap filter active.")
