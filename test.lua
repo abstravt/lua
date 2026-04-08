@@ -1,0 +1,446 @@
+local Luna = loadstring(game:HttpGet("https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua", true))()
+
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+
+local currentTrack = nil
+
+local function stopAll()
+	if currentTrack and currentTrack.IsPlaying then
+		currentTrack:Stop()
+	end
+	currentTrack = nil
+end
+
+local function playAnim(animInstance)
+	local char = Players.LocalPlayer.Character
+	if not char then return end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+
+	stopAll()
+
+	local track = hum:LoadAnimation(animInstance)
+	track:Play()
+	currentTrack = track
+end
+
+local Window = Luna:CreateWindow({
+	Name = "bizzare Lineage Leaked Animations",
+	Subtitle = nil,
+	LogoID = nil,
+	LoadingEnabled = true,
+	LoadingTitle = "bizzare Lineage Leaked Animations",
+	LoadingSubtitle = nil,
+	ConfigSettings = {
+		RootFolder = nil,
+		ConfigFolder = "BLAnimPlayer"
+	},
+	KeySystem = false,
+	KeySettings = {}
+})
+
+local TWOHTab = Window:CreateTab({
+	Name = "TWOH",
+	Icon = "animation",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+
+TWOHTab:CreateSection("Controls")
+
+TWOHTab:CreateButton({
+	Name = "Stop All Animations",
+	Callback = function()
+		stopAll()
+	end
+})
+
+TWOHTab:CreateSection("Pose")
+
+TWOHTab:CreateButton({
+	Name = "The World Over Heaven Pose",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"].Pose["The World Over Heaven Pose"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "The World Over Heaven Pose Loop",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"].Pose["The World Over Heaven Pose Loop"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "The World Over Heaven User Pose",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"].Pose["The World Over Heaven User Pose"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "The World Over Heaven User Pose Loop",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"].Pose["The World Over Heaven User Pose Loop"])
+	end
+})
+
+TWOHTab:CreateSection("Moveset")
+
+TWOHTab:CreateButton({
+	Name = "Barrage",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"].Barrage)
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Grab",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"].Grab)
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Grab Start",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Grab Start"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Grab Victim",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Grab Victim"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Heavenly Smite",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Heavenly Smite"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Judgement Rasengan",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Judgement Rasengan"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Judgement Windup",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Judgement Windup"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Knives",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"].Knives)
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Mode Swap",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Mode Swap"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Reality Erasure Player",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Reality Erasure Player"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Reality Erasure Punch",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Reality Erasure Punch"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Reality Erasure Start",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Reality Erasure Start"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Stardust",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"].Stardust)
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Timestop Character",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Timestop Character"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Timestop Stand",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Timestop Stand"])
+	end
+})
+
+TWOHTab:CreateButton({
+	Name = "Two Hits",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["The World Over Heaven"]["Two Hits"])
+	end
+})
+
+local WOUTab = Window:CreateTab({
+	Name = "WOU",
+	Icon = "animation",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+
+WOUTab:CreateSection("Controls")
+
+WOUTab:CreateButton({
+	Name = "Stop All Animations",
+	Callback = function()
+		stopAll()
+	end
+})
+
+WOUTab:CreateSection("Moveset")
+
+WOUTab:CreateButton({
+	Name = "Barrage",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["Wonder of U"].Barrage)
+	end
+})
+
+WOUTab:CreateButton({
+	Name = "Circle Hit",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["Wonder of U"]["Circle Hit"])
+	end
+})
+
+WOUTab:CreateButton({
+	Name = "Pursuit 1",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["Wonder of U"]["Pursuit 1"])
+	end
+})
+
+WOUTab:CreateButton({
+	Name = "Pursuit 2",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["Wonder of U"]["Pursuit 2"])
+	end
+})
+
+WOUTab:CreateButton({
+	Name = "Walk",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["Wonder of U"].Walk)
+	end
+})
+
+local D4CTab = Window:CreateTab({
+	Name = "D4C",
+	Icon = "animation",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+
+D4CTab:CreateSection("Controls")
+
+D4CTab:CreateButton({
+	Name = "Stop All Animations",
+	Callback = function()
+		stopAll()
+	end
+})
+
+D4CTab:CreateSection("Moveset")
+
+D4CTab:CreateButton({
+	Name = "Barrage",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.D4C.Barrage)
+	end
+})
+
+D4CTab:CreateButton({
+	Name = "Clone Revolver",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.D4C["Clone Revolver"])
+	end
+})
+
+D4CTab:CreateButton({
+	Name = "Clone Summon",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.D4C["Clone Summon"])
+	end
+})
+
+D4CTab:CreateButton({
+	Name = "Parallel Worlds",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.D4C["Parallel Worlds"])
+	end
+})
+
+D4CTab:CreateButton({
+	Name = "Presidential Punishment",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.D4C["Presidential Punishment"])
+	end
+})
+
+D4CTab:CreateButton({
+	Name = "Presidential Punishment Stand",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.D4C["Presidential Punishment Stand"])
+	end
+})
+
+D4CTab:CreateButton({
+	Name = "Revolver",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.D4C.Revolver)
+	end
+})
+
+local SCTab = Window:CreateTab({
+	Name = "SC",
+	Icon = "animation",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+
+SCTab:CreateSection("Controls")
+
+SCTab:CreateButton({
+	Name = "Stop All Animations",
+	Callback = function()
+		stopAll()
+	end
+})
+
+SCTab:CreateSection("Moveset")
+
+SCTab:CreateButton({
+	Name = "Cascade Slash",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["Silver Chariot"]["Cascade Slash"])
+	end
+})
+
+SCTab:CreateButton({
+	Name = "Phantom Piercer",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["Silver Chariot"]["Phantom Piercer"])
+	end
+})
+
+SCTab:CreateButton({
+	Name = "Phantom Piercer Startup",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["Silver Chariot"]["Phantom Piercer Startup"])
+	end
+})
+
+SCTab:CreateButton({
+	Name = "Phantom Piercer Victem",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["Silver Chariot"]["Phantom Piercer Victem"])
+	end
+})
+
+SCTab:CreateButton({
+	Name = "Tempest",
+	Callback = function()
+		playAnim(RS.assets.animations.stands["Silver Chariot"].Tempest)
+	end
+})
+
+local CREAMTab = Window:CreateTab({
+	Name = "CREAM",
+	Icon = "animation",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+
+CREAMTab:CreateSection("Controls")
+
+CREAMTab:CreateButton({
+	Name = "Stop All Animations",
+	Callback = function()
+		stopAll()
+	end
+})
+
+CREAMTab:CreateSection("Moveset")
+
+CREAMTab:CreateButton({
+	Name = "Barrage",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.Cream.Barrage)
+	end
+})
+
+CREAMTab:CreateButton({
+	Name = "Cream Z Stand",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.Cream["Cream Z Stand"])
+	end
+})
+
+CREAMTab:CreateButton({
+	Name = "Cream Z Stand End",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.Cream["Cream Z Stand End"])
+	end
+})
+
+CREAMTab:CreateButton({
+	Name = "Cream Z User",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.Cream["Cream Z User"])
+	end
+})
+
+CREAMTab:CreateButton({
+	Name = "Cream Z User End",
+	Callback = function()
+		playAnim(RS.assets.animations.stands.Cream["Cream Z User End"])
+	end
+})
+
+local SettingsTab = Window:CreateTab({
+	Name = "Settings",
+	Icon = "settings",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+
+SettingsTab:CreateSection("Script")
+
+SettingsTab:CreateButton({
+	Name = "Unload Script",
+	Callback = function()
+		stopAll()
+		Luna:Destroy()
+	end
+})
+
+Luna:LoadAutoloadConfig()
