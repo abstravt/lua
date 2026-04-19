@@ -24,7 +24,7 @@ gui.DescendantAdded:Connect(function(v)
         queued = true
         print("Flag: queued =", queued)
 
-    elseif name:find("Your mission is to", 1, true) then
+    elseif name:find("Your mission is ", 1, true) then
         missionStarted = true
         print("Flag: missionStarted =", missionStarted)
 
